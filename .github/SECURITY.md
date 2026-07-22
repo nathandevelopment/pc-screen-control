@@ -46,7 +46,7 @@ Your antivirus may object to this, and that is a reasonable thing for it to do.
   public release API for this repository and, if you ask, downloads the new
   `.mcpb` to your Downloads folder. The monthly reminder is enforced by a local
   timestamp, so even that runs offline unless a month has passed. Every one of
-  the other 31 tools makes no outbound connection at all. You can verify all of
+  the other 33 tools makes no outbound connection at all. You can verify all of
   this by reading the one file.
 - **No elevated processes.** Windows blocks input from a lower-integrity process
   to a higher one. Anything running as administrator is invisible to it.

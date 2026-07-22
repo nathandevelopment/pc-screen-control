@@ -55,6 +55,9 @@ jobs:
       - name: The handover happens in the right order
         run: python tests/test_handover.py
 
+      - name: Claimed windows are parked safely and rescued
+        run: python tests/test_claim.py
+
       - name: Protocol handshake and tool list
         shell: python
         run: |

@@ -15,7 +15,7 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-0f172a?style=flat-square">
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0f172a?style=flat-square">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-0f172a?style=flat-square">
-  <img alt="32 tools" src="https://img.shields.io/badge/tools-32-22d3ee?style=flat-square">
+  <img alt="34 tools" src="https://img.shields.io/badge/tools-34-22d3ee?style=flat-square">
   <a href="../../actions/workflows/ci.yml"><img alt="CI" src="../../actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
@@ -86,6 +86,16 @@ Start at the top, stop at the first rung that works.
 
 Rungs 1–3 cover almost everything. A screenshot loop has no choice but to live
 on rung 4, every single time.
+
+**For a long job in one application, it can get out of your way entirely.**
+`claim_window` moves that window just past the edge of every monitor. It keeps
+running and stays fully operable by name — but you cannot see it, and you cannot
+click into it, because Windows will not let the mouse pointer leave the
+monitors. Measured on a two-monitor desk: monitors end at x=4920, the window
+parks at x=5120, and `SetCursorPos(5170)` lands at 4919. `release_window` puts it
+back to the pixel, and so does the exit handler — including after a crash, since
+the position is written to disk before the window moves. A window you cannot
+reach with the mouse is not a window anyone should be able to strand.
 
 **And it will not type into a window, or a field, you moved to.** A keystroke
 sent without a target goes wherever the keyboard focus happens to be, which is
@@ -178,7 +188,7 @@ you write something that breaks abroad.
 
 ---
 
-## The 32 tools
+## The 34 tools
 
 | | |
 |---|---|
@@ -197,6 +207,7 @@ you write something that breaks abroad.
 | **`wait_for`** `wait` | Wait for a condition, not for the clock |
 | **`batch`** | Several verified steps in one call |
 | `launch_app` `close_window` `focus_window` | Processes and windows |
+| **`claim_window`** `release_window` | Park a window where your mouse cannot reach, and put it back to the pixel |
 | **`set_guard`** | Who has priority while Claude uses the mouse — `claude` or `me` |
 | **`check_for_update`** | The one tool that goes online, on request |
 
@@ -297,7 +308,7 @@ windows and drag things, including in applications holding unsaved work.
 Provided **as is**, without warranty — see `LICENSE`. You are responsible for
 what you automate with it; test on something you can afford to lose. It collects
 no data and sends none. Exactly one tool, `check_for_update`, reaches the
-network, and only when it is called; the other 31 make no outbound connection at
+network, and only when it is called; the other 33 make no outbound connection at
 all. Automating third-party software may conflict with that software's terms of
 use. [SECURITY.md](.github/SECURITY.md) has the threat model.
 

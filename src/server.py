@@ -2164,6 +2164,183 @@ def t_launch_app(args):
     return {"ok": True, "started": befehl}
 
 
+# ---------------------------------------------------------------------------
+# Claiming a window.
+#
+# Windows lets a window sit at coordinates where no monitor is. It does not let
+# the mouse pointer go there - the cursor is clamped to the union of the real
+# monitors. Measured on a two-monitor desk: monitors end at x=4920, a window
+# parked at x=5120 stays there and stays fully operable through the
+# accessibility interface, while SetCursorPos(5170) lands at 4919.
+#
+# That asymmetry is the whole feature. It creates a working area the user can
+# neither see nor click into - not because anything is guarding it, but because
+# the pointer physically cannot arrive. Unlike a separate desktop object, a
+# window that is already running can be moved there and back, which is what
+# makes it work for an application the user already had open.
+#
+# The danger is obvious and has to be handled before anything else: a window
+# parked out there when the server dies is a window the user cannot reach. So
+# the parking spot is written to disk, restored on the next start, and restored
+# again by an exit handler.
+_BEANSPRUCHT = {}
+
+
+def _parkplatz_datei():
+    basis = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(basis, SERVER_NAME, "claimed_windows.json")
+
+
+def _parkplatz_speichern():
+    try:
+        pfad = _parkplatz_datei()
+        os.makedirs(os.path.dirname(pfad), exist_ok=True)
+        with open(pfad, "w", encoding="utf-8") as fh:
+            json.dump(_BEANSPRUCHT, fh)
+    except Exception:
+        pass
+
+
+def _fenster_verschieben(hwnd, x, y, b, h):
+    import ctypes
+    ctypes.windll.user32.MoveWindow(int(hwnd), int(x), int(y),
+                                    int(b), int(h), True)
+
+
+def _fenster_rect(hwnd):
+    import ctypes
+
+    class R(ctypes.Structure):
+        _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                    ("r", ctypes.c_long), ("b", ctypes.c_long)]
+    r = R()
+    if ctypes.windll.user32.GetWindowRect(int(hwnd), ctypes.byref(r)):
+        return [r.l, r.t, r.r - r.l, r.b - r.t]
+    return None
+
+
+def _alle_zurueckholen(grund="shutdown"):
+    """Bring every parked window home. Called on exit and on startup."""
+    zurueck = []
+    for schluessel, daten in list(_BEANSPRUCHT.items()):
+        try:
+            heimat = daten.get("home")
+            if heimat:
+                _fenster_verschieben(int(schluessel), *heimat)
+                zurueck.append(daten.get("title", schluessel))
+        except Exception:
+            pass
+        _BEANSPRUCHT.pop(schluessel, None)
+    _parkplatz_speichern()
+    if zurueck:
+        sys.stderr.write("[%s] brought %d window(s) back (%s): %s\n"
+                         % (SERVER_NAME, len(zurueck), grund,
+                            ", ".join(str(z) for z in zurueck)))
+        sys.stderr.flush()
+    return zurueck
+
+
+def _verwaiste_zurueckholen():
+    """
+    On startup, rescue anything a previous run left parked.
+
+    This is the part that makes the feature safe rather than clever. A window
+    sitting outside every monitor cannot be reached with the mouse, so a crash
+    at the wrong moment would otherwise hand the user an application they can
+    see in the taskbar and cannot get to.
+    """
+    try:
+        pfad = _parkplatz_datei()
+        if not os.path.isfile(pfad):
+            return
+        with open(pfad, "r", encoding="utf-8") as fh:
+            alt = json.load(fh)
+        if not alt:
+            return
+        _BEANSPRUCHT.update(alt)
+        _alle_zurueckholen("left over from an earlier run")
+    except Exception:
+        pass
+
+
+def t_claim_window(args):
+    """
+    Take a window out of the user's way so both can work at once.
+
+    Moves it just past the right edge of every monitor, where it keeps running
+    and stays fully operable but cannot be seen or clicked. Its exact position
+    is remembered and restored by release_window, by the exit handler, and on
+    the next start if this process is killed.
+    """
+    _require_uia()
+    el, hwnd = _window_by(args.get("window_handle"), args.get("window_title"))
+    titel = (_safe(lambda: el.Name, "") or "")[:120]
+    schluessel = str(int(hwnd))
+
+    if schluessel in _BEANSPRUCHT:
+        return {"ok": True, "already_claimed": True, "window": titel,
+                "handle": int(hwnd)}
+
+    heimat = _fenster_rect(hwnd)
+    if not heimat:
+        raise RuntimeError("Could not read this window's position.")
+
+    vx, vy, vb, vh = _virtueller_bildschirm()
+    ziel_x = vx + vb + 200
+    ziel_y = vy + 100
+    _fenster_verschieben(hwnd, ziel_x, ziel_y, heimat[2], heimat[3])
+    import time as _t
+    _t.sleep(0.25)
+
+    jetzt = _fenster_rect(hwnd) or []
+    draussen = bool(jetzt) and jetzt[0] >= vx + vb
+    if not draussen:
+        _fenster_verschieben(hwnd, *heimat)
+        raise RuntimeError(
+            "This window refused to move outside the monitors - it is still at "
+            "x=%s. Some applications clamp their own position. Nothing was "
+            "changed." % (jetzt[0] if jetzt else "?"))
+
+    _BEANSPRUCHT[schluessel] = {"home": heimat, "title": titel}
+    _parkplatz_speichern()
+    return {"ok": True, "window": titel, "handle": int(hwnd),
+            "parked_at": jetzt[:2], "home": heimat[:2],
+            "note": "Out of reach of the mouse - the cursor cannot leave the "
+                    "monitors. Operate it by ref as usual; coordinate clicking "
+                    "will not work out there. release_window puts it back."}
+
+
+def t_release_window(args):
+    """Put a claimed window back exactly where it was, and prove it."""
+    _require_uia()
+    if args.get("all"):
+        return {"ok": True, "released": _alle_zurueckholen("requested")}
+
+    el, hwnd = _window_by(args.get("window_handle"), args.get("window_title"))
+    schluessel = str(int(hwnd))
+    daten = _BEANSPRUCHT.get(schluessel)
+    if not daten:
+        return {"ok": False, "window": (_safe(lambda: el.Name, "") or "")[:120],
+                "note": "This window was not claimed."}
+
+    heimat = daten["home"]
+    _fenster_verschieben(hwnd, *heimat)
+    import time as _t
+    _t.sleep(0.25)
+    jetzt = _fenster_rect(hwnd) or []
+    genau = bool(jetzt) and abs(jetzt[0] - heimat[0]) <= 2 \
+        and abs(jetzt[1] - heimat[1]) <= 2
+    _BEANSPRUCHT.pop(schluessel, None)
+    _parkplatz_speichern()
+    return {"ok": True, "window": daten.get("title"), "handle": int(hwnd),
+            "back_at": jetzt[:2] if jetzt else None,
+            "was_at": heimat[:2],
+            "exact": genau,
+            "note": ("Back where it was." if genau else
+                     "Moved back, but the application adjusted its own "
+                     "position - compare back_at with was_at.")}
+
+
 def t_close_window(args):
     """
     Close a window through WindowPattern, and only fall back to the keyboard.
@@ -2495,6 +2672,14 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"keys": S, "ref": S,
                                                       "force": B},
                      "required": ["keys"]}},
+    {"name": "claim_window", "_fn": t_claim_window,
+     "description": "Takes a window out of the user's way so both of you can work at the same time. It is moved just past the edge of every monitor, where it keeps running and stays fully operable by ref - but cannot be seen, and cannot be clicked by the user, because Windows will not let the mouse pointer leave the monitors. Use this before a long piece of work in one application: the user keeps their screens, you keep the window. Coordinate clicking does not work out there, so only claim a window you can operate by name. release_window puts it back exactly. Windows are also put back automatically if this server exits or crashes.",
+     "inputSchema": {"type": "object", "properties": {
+         "window_handle": I, "window_title": S}}},
+    {"name": "release_window", "_fn": t_release_window,
+     "description": "Puts a claimed window back exactly where it was and reports whether the position matched to the pixel. Pass all:true to bring every claimed window home.",
+     "inputSchema": {"type": "object", "properties": {
+         "window_handle": I, "window_title": S, "all": B}}},
     {"name": "set_guard", "_fn": t_set_guard,
      "description": "Sets who has priority while Claude uses the mouse or keyboard. 'claude' (default): when the user is active, a rubber-band pulse warns them, their input is briefly held, and their window and text cursor are put back afterwards. 'me': Claude never takes over on its own - it waits and shows a small card, acting only when the user clicks it. Use 'me' when the user is gaming or doing something that must not be interrupted. Also toggles the whole guard on/off.",
      "inputSchema": {"type": "object", "properties": {
@@ -2915,6 +3100,16 @@ def main():
             _write_log()
             rc = 1
         sys.exit(rc)
+    # Rescue anything a previous run left parked outside the monitors before
+    # doing anything else. A window out there cannot be reached with the mouse,
+    # so this has to happen even if that run ended badly - especially then.
+    _safe(_verwaiste_zurueckholen)
+    try:
+        import atexit
+        atexit.register(lambda: _alle_zurueckholen("server exiting"))
+    except Exception:
+        pass
+
     sys.stderr.write("[%s %s] ready\n" % (SERVER_NAME, SERVER_VERSION))
     sys.stderr.flush()
     for line in sys.stdin:

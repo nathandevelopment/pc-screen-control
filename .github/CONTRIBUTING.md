@@ -17,12 +17,13 @@ python tests/test_refs.py          # refs resolve, and invoke refuses the mouse
 python tests/test_takeover.py      # blind input stops if the user took over
 python tests/test_restore.py       # focus is really given back, measured
 python tests/test_handover.py      # freeze, look, act, restore, release
+python tests/test_claim.py         # parking a window, and the crash rescue
 python tests/measure_desktop.py    # measures the desktop you are sitting at
 python tests/stress.py             # cost, nonsense, broken protocol, ~1 min
 python src/server.py --install     # register it with your MCP client
 ```
 
-CI runs all eight on Windows against Python 3.9, 3.11 and 3.13.
+CI runs all nine on Windows against Python 3.9, 3.11 and 3.13.
 
 ## The one rule
 
