@@ -1,0 +1,11 @@
+# Source keeps LF in the repository, whatever the machine it was written on.
+# Without this, a Windows checkout commits CRLF and the first person reading it
+# on Linux or macOS sees every line marked as changed.
+* text=auto eol=lf
+
+# These are run by cmd.exe and must have CRLF on disk.
+*.bat text eol=crlf
+
+# Binary - never touch.
+*.png binary
+*.mcpb binary

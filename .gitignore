@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.mcpb
+*.zip
+*.spec
+bundle/
+dist/
+build/
+.venv/
+install_log.txt
+tests/measurement_report.md

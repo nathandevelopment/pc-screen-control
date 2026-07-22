@@ -1,0 +1,18 @@
+<svg width="680" height="200" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="pc screen control">
+  <rect x="0" y="0" width="680" height="200" rx="12" fill="#0f172a"/>
+  <rect x="36" y="38" width="196" height="124" rx="6" fill="#111c30" stroke="#334155" stroke-width="0.5"/>
+  <line x1="36" y1="60" x2="232" y2="60" stroke="#334155" stroke-width="0.5"/>
+  <circle cx="49" cy="49" r="3" fill="#475569"/>
+  <circle cx="60" cy="49" r="3" fill="#475569"/>
+  <circle cx="71" cy="49" r="3" fill="#475569"/>
+  <rect x="50" y="74" width="72" height="16" rx="3" fill="none" stroke="#22d3ee" stroke-width="0.5"/>
+  <rect x="50" y="98" width="52" height="16" rx="3" fill="none" stroke="#475569" stroke-width="0.5"/>
+  <rect x="50" y="122" width="88" height="16" rx="3" fill="none" stroke="#475569" stroke-width="0.5"/>
+  <rect x="140" y="74" width="72" height="64" rx="3" fill="none" stroke="#475569" stroke-width="0.5" stroke-dasharray="3 3"/>
+  <line x1="126" y1="82" x2="140" y2="82" stroke="#22d3ee" stroke-width="0.5"/>
+  <line x1="106" y1="106" x2="140" y2="106" stroke="#475569" stroke-width="0.5"/>
+  <text x="276" y="88" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="30" font-weight="500" fill="#f1f5f9">pc screen control</text>
+  <line x1="277" y1="104" x2="317" y2="104" stroke="#22d3ee" stroke-width="2"/>
+  <text x="276" y="130" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" fill="#94a3b8">the screen as data, not as a picture</text>
+  <text x="276" y="152" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#64748b">an mcp server that lets an ai operate windows</text>
+</svg>

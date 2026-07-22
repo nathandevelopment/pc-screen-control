@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: pip install -r src/requirements.txt
+
+      - name: Compile
+        run: python -m py_compile src/server.py
+
+      - name: Manifest is valid and matches the server version
+        shell: python
+        run: |
+          import json, re, sys
+          m = json.load(open("src/manifest.json", encoding="utf-8"))
+          src = open("src/server.py", encoding="utf-8").read()
+          v = re.search(r'SERVER_VERSION\s*=\s*"([^"]+)"', src).group(1)
+          print("manifest", m["version"], "| server", v)
+          sys.exit(0 if m["version"] == v else 1)
+
+      - name: Setup logic
+        run: python tests/test_installer.py
+
+      - name: Non-ASCII survives the protocol
+        run: python tests/test_encoding.py
+
+      - name: Refs resolve, and cheap tools refuse the mouse
+        run: python tests/test_refs.py
+
+      - name: Blind input is refused after a takeover
+        run: python tests/test_takeover.py
+
+      - name: Protocol handshake and tool list
+        shell: python
+        run: |
+          import json, subprocess, sys
+          req = "\n".join([
+              json.dumps({"jsonrpc": "2.0", "id": 1,
+                          "method": "initialize", "params": {}}),
+              json.dumps({"jsonrpc": "2.0", "id": 2,
+                          "method": "tools/list", "params": {}}),
+          ])
+          p = subprocess.run([sys.executable, "src/server.py"],
+                             input=req, capture_output=True, text=True,
+                             timeout=120)
+          lines = [json.loads(l) for l in p.stdout.splitlines() if l.strip()]
+          assert len(lines) == 2, p.stderr
+          assert lines[0]["result"]["serverInfo"]["name"] == "pc-screen-control"
+          tools = lines[1]["result"]["tools"]
+          print("tools:", len(tools))
+          assert len(tools) >= 25
+          for t in tools:
+              assert t["name"] and t["description"] and t["inputSchema"]
+
+      - name: Reads a real desktop
+        run: python tests/measure_desktop.py
+
+      - name: Stress - cost, nonsense, broken protocol, repetition
+        run: python tests/stress.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: measurement-py${{ matrix.python }}
+          path: tests/measurement_report.md
+          if-no-files-found: ignore

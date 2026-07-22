@@ -1,0 +1,70 @@
+name: Bug report
+description: Something does not work in a particular application
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The single most useful thing you can send is the `describe_screen`
+        output for the window that misbehaved. It carries the window class and
+        UI framework, which is what determines whether the tree can be read at
+        all — without it, most reports cannot be acted on.
+
+  - type: textarea
+    id: describe
+    attributes:
+      label: describe_screen output for the affected window
+      description: Ask the assistant to run `describe_screen` and paste the entry for that window.
+      render: json
+      placeholder: |
+        {
+          "handle": 2100558,
+          "title": "tools – File Explorer",
+          "class": "CabinetWClass",
+          "framework": "Win32",
+          "probe_nodes": 207,
+          "verdict": "readable"
+        }
+    validations:
+      required: true
+
+  - type: input
+    id: app
+    attributes:
+      label: Application and version
+      placeholder: "Adobe Lightroom Classic 14.2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+      description: If a tool returned something, paste it — the before/after block usually shows exactly where it went wrong.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version of this server
+      description: The number shown next to the extension in Claude, or from `initialize`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows and Python version
+      placeholder: "Windows 11 24H2, Python 3.12.4"
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: The application is not running as administrator (those are invisible to any user-level process, by design)
+          required: true
+        - label: I tried `read_ui_tree` once even though `describe_screen` said `shallow` — some frameworks only build their tree when first asked
+          required: false
