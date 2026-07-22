@@ -49,6 +49,9 @@ jobs:
       - name: Blind input is refused after a takeover
         run: python tests/test_takeover.py
 
+      - name: Focus is really handed back
+        run: python tests/test_restore.py
+
       - name: Protocol handshake and tool list
         shell: python
         run: |

@@ -15,12 +15,13 @@ python tests/test_installer.py     # setup logic, runs anywhere
 python tests/test_encoding.py      # non-ASCII survives the protocol
 python tests/test_refs.py          # refs resolve, and invoke refuses the mouse
 python tests/test_takeover.py      # blind input stops if the user took over
+python tests/test_restore.py       # focus is really given back, measured
 python tests/measure_desktop.py    # measures the desktop you are sitting at
 python tests/stress.py             # cost, nonsense, broken protocol, ~1 min
 python src/server.py --install     # register it with your MCP client
 ```
 
-CI runs all six on Windows against Python 3.9, 3.11 and 3.13.
+CI runs all seven on Windows against Python 3.9, 3.11 and 3.13.
 
 ## The one rule
 

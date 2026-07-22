@@ -1595,7 +1595,8 @@ def _leerlauf_ms():
 # ---- state that gets saved before a takeover and restored after -----------
 def _fokus_sichern():
     """Foreground window, focused element and its text selection."""
-    zustand = {"hwnd": None, "ref": None, "sel": None}
+    zustand = {"hwnd": None, "ref": None, "sel": None,
+               "kennung": _safe(_fokus_kennung)}
     try:
         import ctypes
         zustand["hwnd"] = ctypes.windll.user32.GetForegroundWindow()
@@ -1618,22 +1619,79 @@ def _fokus_sichern():
     return zustand
 
 
-def _fokus_zurueck(zustand):
-    if not zustand:
-        return
+def _vordergrund_setzen(hwnd):
+    """
+    Put a window back in front, and report whether it actually happened.
+
+    SetForegroundWindow on its own is not enough, and it fails *silently*.
+    Windows grants the foreground only to a process that already holds it or
+    received the last input event - deliberately, so that background programs
+    cannot steal focus while someone is typing. That protection is correct. It
+    also means the obvious one-line call does nothing at all and returns without
+    complaint, which is how a restore can look implemented for weeks and never
+    once have run. It was reported as "it takes my focus and does not give it
+    back", and that is exactly what was happening.
+
+    The documented way through is to attach our input queue to the thread that
+    currently owns the foreground: for the duration of that attachment Windows
+    treats the request as coming from the foreground thread itself, so the call
+    is granted. We detach immediately afterwards.
+    """
+    import ctypes
+    if not hwnd:
+        return False
+    u = ctypes.windll.user32
+    k = ctypes.windll.kernel32
+    u.GetForegroundWindow.restype = ctypes.c_void_p
+    u.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+    u.SetForegroundWindow.restype = ctypes.c_bool
+    u.BringWindowToTop.argtypes = [ctypes.c_void_p]
+    u.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    u.IsIconic.argtypes = [ctypes.c_void_p]
+    u.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    u.GetWindowThreadProcessId.restype = ctypes.c_ulong
+
+    ziel = ctypes.c_void_p(int(hwnd))
+    if int(u.GetForegroundWindow() or 0) == int(hwnd):
+        return True                              # never moved, nothing to do
+
+    if u.IsIconic(ziel):
+        u.ShowWindow(ziel, 9)                    # SW_RESTORE
+
+    vorne = u.GetForegroundWindow()
+    fremd = u.GetWindowThreadProcessId(ctypes.c_void_p(vorne or 0), None)
+    eigen = k.GetCurrentThreadId()
+    angehaengt = False
+    if fremd and fremd != eigen:
+        angehaengt = bool(u.AttachThreadInput(eigen, fremd, True))
     try:
-        import ctypes
-        if zustand.get("hwnd"):
-            ctypes.windll.user32.SetForegroundWindow(zustand["hwnd"])
-    except Exception:
-        pass
+        u.BringWindowToTop(ziel)
+        u.SetForegroundWindow(ziel)
+    finally:
+        if angehaengt:
+            u.AttachThreadInput(eigen, fremd, False)
+
+    # Say it worked only if it worked.
+    return int(u.GetForegroundWindow() or 0) == int(hwnd)
+
+
+def _fokus_zurueck(zustand):
+    """Give back the window, the focused control and the caret, and prove it."""
+    if not zustand:
+        return {"window": False, "control": False}
+    ergebnis = {"window": _safe(lambda: _vordergrund_setzen(zustand.get("hwnd")),
+                                False),
+                "control": False}
     ref = zustand.get("ref")
     if ref:
         try:
             el = _resolve(ref)
-            _safe(lambda: el.SetFocus())
+            if _safe(lambda: el.SetFocus(), "fehler") != "fehler":
+                jetzt = _fokus_kennung()
+                ergebnis["control"] = bool(jetzt) and jetzt == zustand.get("kennung")
         except Exception:
             pass
+    return ergebnis
 
 
 # How long to wait after the lock engages before reading the screen. A click or
@@ -1642,6 +1700,10 @@ def _fokus_zurueck(zustand):
 # last input landed. 40 ms is past the queue and far below anything a person
 # notices.
 BERUHIGEN_MS = 40
+
+# What the last release actually managed to give back. Tools copy this into
+# their reply so "your focus is restored" is a measurement, not a promise.
+_RUECKGABE = {}
 
 
 class _eingabe_laeuft(object):
@@ -1674,7 +1736,12 @@ class _eingabe_laeuft(object):
         _OVERLAY["tiefe"] = max(0, _OVERLAY["tiefe"] - 1)
         if _OVERLAY["tiefe"] == 0:
             _overlay_sagen("release")
-            _fokus_zurueck(self.gesichert)
+            # Recorded rather than discarded: a restore that quietly fails is
+            # indistinguishable from one that never ran, and that is how this
+            # went unnoticed before. _letzte_rueckgabe is read by the tools so
+            # the reply can say whether the screen was really handed back.
+            _RUECKGABE.clear()
+            _RUECKGABE.update(_fokus_zurueck(self.gesichert) or {})
 
     def __enter__(self):
         _OVERLAY["tiefe"] += 1
