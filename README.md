@@ -15,7 +15,7 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-0f172a?style=flat-square">
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0f172a?style=flat-square">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-0f172a?style=flat-square">
-  <img alt="34 tools" src="https://img.shields.io/badge/tools-34-22d3ee?style=flat-square">
+  <img alt="35 tools" src="https://img.shields.io/badge/tools-35-22d3ee?style=flat-square">
   <a href="../../actions/workflows/ci.yml"><img alt="CI" src="../../actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
@@ -188,7 +188,7 @@ you write something that breaks abroad.
 
 ---
 
-## The 34 tools
+## The 35 tools
 
 | | |
 |---|---|
@@ -207,6 +207,7 @@ you write something that breaks abroad.
 | **`wait_for`** `wait` | Wait for a condition, not for the clock |
 | **`batch`** | Several verified steps in one call |
 | `launch_app` `close_window` `focus_window` | Processes and windows |
+| **`self_test`** | Checks everything and says in plain words what is wrong and what to do |
 | **`claim_window`** `release_window` | Park a window where your mouse cannot reach, and put it back to the pixel |
 | **`set_guard`** | Who has priority while Claude uses the mouse — `claude` or `me` |
 | **`check_for_update`** | The one tool that goes online, on request |
@@ -308,7 +309,7 @@ windows and drag things, including in applications holding unsaved work.
 Provided **as is**, without warranty — see `LICENSE`. You are responsible for
 what you automate with it; test on something you can afford to lose. It collects
 no data and sends none. Exactly one tool, `check_for_update`, reaches the
-network, and only when it is called; the other 33 make no outbound connection at
+network, and only when it is called; the other 34 make no outbound connection at
 all. Automating third-party software may conflict with that software's terms of
 use. [SECURITY.md](.github/SECURITY.md) has the threat model.
 

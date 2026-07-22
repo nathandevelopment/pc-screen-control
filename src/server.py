@@ -45,6 +45,11 @@ sys.stdout = sys.stderr
 os.environ.setdefault("QT_ACCESSIBILITY", "1")
 
 
+# What the very first run had to do. Handed back with the first reply,
+# because stderr is not shown to the person who is waiting.
+ERSTSTART = {}
+
+
 def _ensure_dependencies():
     """
     Install missing dependencies on first run.
@@ -67,6 +72,12 @@ def _ensure_dependencies():
             missing.append(package)
     if not missing:
         return
+    # This is the first run, and it takes a while. stderr is not shown to the
+    # person waiting, so what happens here is recorded and handed back with the
+    # first reply instead - otherwise the very first thing a new user
+    # experiences is half a minute in which nothing appears to happen at all.
+    import time as _t
+    begonnen = _t.time()
     sys.stderr.write("[setup] installing missing dependencies: %s\n"
                      % ", ".join(missing))
     sys.stderr.flush()
@@ -79,9 +90,13 @@ def _ensure_dependencies():
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         importlib.invalidate_caches()
         sys.stderr.write("[setup] done\n")
+        ERSTSTART["installed"] = list(missing)
+        ERSTSTART["seconds"] = round(_t.time() - begonnen, 1)
     except Exception as e:
         sys.stderr.write("[setup] failed: %s - install manually with: "
                          "pip install %s\n" % (e, " ".join(missing)))
+        ERSTSTART["failed"] = list(missing)
+        ERSTSTART["error"] = str(e)[:120]
     sys.stderr.flush()
 
 
@@ -250,6 +265,9 @@ def _describe(el, ref):
     return d
 
 
+_BEANSPRUCHT = {}
+
+
 def _top_windows():
     _require_uia()
     out = []
@@ -262,10 +280,18 @@ def _top_windows():
             cls = w.ClassName or ""
             if not name and cls in ("Progman", "WorkerW"):
                 continue
-            out.append({"handle": int(h), "title": name[:NAME_CLIP],
-                        "class": cls, "role": _role(w), "rect": _rect(w),
-                        "framework": _safe(lambda: w.FrameworkId, "") or "?",
-                        "offscreen": bool(_safe(lambda: w.IsOffscreen, False))})
+            eintrag = {"handle": int(h), "title": name[:NAME_CLIP],
+                       "class": cls, "role": _role(w), "rect": _rect(w),
+                       "framework": _safe(lambda: w.FrameworkId, "") or "?",
+                       "offscreen": bool(_safe(lambda: w.IsOffscreen, False))}
+            # A parked window is still a real window and would otherwise
+            # look like any other. Saying so here means every tool that
+            # lists windows says so too, without each one remembering to.
+            if str(int(h)) in _BEANSPRUCHT:
+                eintrag["claimed"] = True
+                eintrag["note"] = ("Parked out of reach of the mouse by "
+                                   "claim_window. release_window puts it back.")
+            out.append(eintrag)
         except Exception:
             continue
     return out
@@ -2183,7 +2209,6 @@ def t_launch_app(args):
 # parked out there when the server dies is a window the user cannot reach. So
 # the parking spot is written to disk, restored on the next start, and restored
 # again by an exit handler.
-_BEANSPRUCHT = {}
 
 
 def _parkplatz_datei():
@@ -2261,6 +2286,141 @@ def _verwaiste_zurueckholen():
         _alle_zurueckholen("left over from an earlier run")
     except Exception:
         pass
+
+
+def t_self_test(args):
+    """
+    Check everything and say, in plain words, what is wrong and what to do.
+
+    Written for the moment when someone says "it does not work" and neither of
+    us knows why. Every check answers one question a person would actually ask,
+    and every failure carries the fix rather than a diagnosis - a stack trace
+    tells the author something and the user nothing.
+    """
+    import platform
+    pruefungen = []
+
+    def pruefe(frage, ok, antwort, hilfe=""):
+        pruefungen.append({"check": frage, "ok": bool(ok),
+                           "found": antwort,
+                           **({"fix": hilfe} if hilfe and not ok else {})})
+
+    # --- the basics someone can get wrong before anything runs -------------
+    v = sys.version_info
+    pruefe("Is Python new enough?", v[:2] >= (3, 9),
+           "Python %d.%d.%d" % v[:3],
+           "Install Python 3.9 or newer from python.org and tick "
+           "'Add python.exe to PATH' during setup.")
+
+    pruefe("Is this Windows?", os.name == "nt",
+           "%s %s" % (platform.system(), platform.release()),
+           "This server only works on Windows. docs/PORTING.md explains why.")
+
+    try:
+        import uiautomation as _a
+        uia_da = True
+        uia_info = "installed"
+    except Exception as e:
+        uia_da = False
+        uia_info = str(e)[:60]
+    pruefe("Is the accessibility library installed?", uia_da, uia_info,
+           "Run: pip install uiautomation")
+
+    try:
+        import PIL
+        bild = "installed"
+        bild_ok = True
+    except Exception:
+        bild = "missing"
+        bild_ok = False
+    pruefe("Can it take pictures? (only needed for capture)", bild_ok, bild,
+           "Run: pip install pillow. Everything except capture works without.")
+
+    # --- the streams, because this one is invisible when it breaks ---------
+    kodierung = []
+    for name, strom in (("in", sys.stdin), ("out", _PROTO_OUT),
+                        ("err", sys.stderr)):
+        kodierung.append("%s=%s" % (name, getattr(strom, "encoding", "?")))
+    alle_utf8 = all("utf-8" in (getattr(s, "encoding", "") or "").lower()
+                    for s in (sys.stdin, _PROTO_OUT, sys.stderr))
+    pruefe("Do all three streams speak UTF-8?", alle_utf8, ", ".join(kodierung),
+           "Without this every non-English character sent to a tool is "
+           "destroyed on the way in, silently. Reinstall this server.")
+
+    # --- can it actually see the screen ------------------------------------
+    fenster = []
+    if uia_da:
+        fenster = _safe(_top_windows, []) or []
+    pruefe("Can it see your windows?", len(fenster) > 0,
+           "%d window(s)" % len(fenster),
+           "Nothing was found. Is anything open? If yes, the accessibility "
+           "service may be off - restart Windows and try again.")
+
+    # --- can it build a handle it can act on -------------------------------
+    ref_ok = False
+    ref_info = "not tested"
+    if fenster:
+        try:
+            el = auto.ControlFromHandle(int(fenster[0]["handle"]))
+            kinder = _safe(lambda: el.GetChildren(), []) or []
+            if kinder:
+                r = _ref_for(kinder[0])
+                ref_ok = bool(r) and _safe(lambda: _resolve(r)) is not None
+                ref_info = r or "could not build one"
+        except Exception as e:
+            ref_info = str(e)[:60]
+    pruefe("Can it point at a single control and find it again?",
+           ref_ok, ref_info,
+           "Reading works but acting will not. Please open an issue with this "
+           "whole report.")
+
+    # --- the edge overlay, which is a separate program ---------------------
+    overlay_datei = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "overlay.py")
+    pruefe("Is the screen-edge warning present?", os.path.isfile(overlay_datei),
+           "overlay.py " + ("found" if os.path.isfile(overlay_datei)
+                            else "missing"),
+           "Without it, actions still work but you get no warning before your "
+           "input is held. Reinstall to restore it.")
+
+    # --- writable places ---------------------------------------------------
+    schreibbar = False
+    ort = _parkplatz_datei()
+    try:
+        os.makedirs(os.path.dirname(ort), exist_ok=True)
+        probe = ort + ".probe"
+        with open(probe, "w", encoding="utf-8") as fh:
+            fh.write("ok")
+        os.remove(probe)
+        schreibbar = True
+    except Exception as e:
+        ort = "%s (%s)" % (ort, str(e)[:40])
+    pruefe("Can it remember things between runs?", schreibbar, ort,
+           "It cannot write to your own user folder. Some security software "
+           "blocks this. Without it, a window parked out of reach after a "
+           "crash would not be rescued on the next start.")
+
+    # --- anything left over ------------------------------------------------
+    pruefe("Any window still parked out of reach?", not _BEANSPRUCHT,
+           "%d parked" % len(_BEANSPRUCHT),
+           "Call release_window with all:true to bring them back.")
+
+    schlecht = [p for p in pruefungen if not p["ok"]]
+    kritisch = [p for p in schlecht
+                if p["check"] not in
+                ("Can it take pictures? (only needed for capture)",)]
+
+    return {"ok": not kritisch,
+            "version": SERVER_VERSION,
+            "tools": len(TOOLS),
+            "checks": pruefungen,
+            "failed": len(schlecht),
+            "verdict": ("Everything works." if not schlecht else
+                        "Working, with one thing missing - see 'fix'."
+                        if not kritisch else
+                        "Something is wrong. The failing checks tell you what "
+                        "to do; paste this whole report into a bug report."),
+            "note": "Every line above was measured just now, not remembered."}
 
 
 def t_claim_window(args):
@@ -2341,6 +2501,27 @@ def t_release_window(args):
                      "position - compare back_at with was_at.")}
 
 
+def _unumkehrbar_pruefen(args, was, folgen):
+    """
+    Make an irreversible action be decided twice, not once.
+
+    Nothing here can undo closing a window or discarding what was in it. The
+    protection is not a dialog - there is nobody at the screen to answer one -
+    but a first call that refuses and describes exactly what is about to be
+    lost. The second call has to name it back. That turns a reflex into a
+    decision, and it puts the description in front of the person watching
+    before the thing happens rather than after.
+    """
+    if args.get("confirm") is True:
+        return
+    raise RuntimeError(
+        "Refusing to %s on the first try, because it cannot be undone. %s\n"
+        "If that is really what should happen, say so to the person you are "
+        "working for, then call this again with confirm:true. Do not add "
+        "confirm:true reflexively - it exists so this gets decided twice."
+        % (was, folgen))
+
+
 def t_close_window(args):
     """
     Close a window through WindowPattern, and only fall back to the keyboard.
@@ -2354,6 +2535,11 @@ def t_close_window(args):
     el, h = _window_by(args.get("window_handle"), args.get("window_title"))
     titel = (_safe(lambda: el.Name, "") or "")[:120]
     import time as _t
+
+    _unumkehrbar_pruefen(
+        args, "close %r" % titel,
+        "Anything unsaved in that window is lost, and nothing here can bring "
+        "the window back. Some applications ask before closing; many do not.")
 
     wp = _pat(el, "WindowPattern")
     if wp is not None and _safe(lambda: wp.Close(), "fehler") != "fehler":
@@ -2660,9 +2846,9 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "command": S, "await_title": S, "timeout": I}, "required": ["command"]}},
     {"name": "close_window", "_fn": t_close_window,
-     "description": "Closes a window and verifies it actually closed.",
+     "description": "Closes a window and verifies it actually closed. This cannot be undone, so the first call refuses and describes what would be lost; call again with confirm:true once the person you are working for has agreed. Do not pass confirm:true reflexively - it exists so the decision is made twice.",
      "inputSchema": {"type": "object", "properties": {
-         "window_handle": I, "window_title": S}}},
+         "window_handle": I, "window_title": S, "confirm": B}}},
     {"name": "focus_window", "_fn": t_focus_window,
      "description": "Brings a window to the foreground.",
      "inputSchema": {"type": "object", "properties": {"window_handle": I,
@@ -2672,6 +2858,9 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"keys": S, "ref": S,
                                                       "force": B},
                      "required": ["keys"]}},
+    {"name": "self_test", "_fn": t_self_test,
+     "description": "Checks everything at once and answers, in plain words, what is wrong and what to do about it. Run this first whenever something does not work, before guessing - it measures rather than remembers, and every failure carries its own fix. Also the right thing to paste into a bug report.",
+     "inputSchema": {"type": "object", "properties": {}}},
     {"name": "claim_window", "_fn": t_claim_window,
      "description": "Takes a window out of the user's way so both of you can work at the same time. It is moved just past the edge of every monitor, where it keeps running and stays fully operable by ref - but cannot be seen, and cannot be clicked by the user, because Windows will not let the mouse pointer leave the monitors. Use this before a long piece of work in one application: the user keeps their screens, you keep the window. Coordinate clicking does not work out there, so only claim a window you can operate by name. release_window puts it back exactly. Windows are also put back automatically if this server exits or crashes.",
      "inputSchema": {"type": "object", "properties": {
@@ -2731,6 +2920,19 @@ def _handle(msg):
             else:
                 content = [{"type": "text",
                             "text": json.dumps(out, ensure_ascii=True, indent=2)}]
+            if ERSTSTART and not ERSTSTART.get("_gesagt"):
+                ERSTSTART["_gesagt"] = True
+                hinweis = dict(ERSTSTART)
+                hinweis.pop("_gesagt", None)
+                hinweis["note"] = (
+                    "First run: this server had to install what it "
+                    "needs before it could answer, which is why the "
+                    "first call was slow. It only happens once. Tell "
+                    "the user so they are not left wondering.")
+                content = content + [{"type": "text",
+                                      "text": json.dumps(hinweis,
+                                                         ensure_ascii=True,
+                                                         indent=2)}]
             _send({"jsonrpc": "2.0", "id": rid, "result": {"content": content}})
         except Exception as e:
             _send({"jsonrpc": "2.0", "id": rid, "result": {
