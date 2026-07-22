@@ -52,6 +52,9 @@ jobs:
       - name: Focus is really handed back
         run: python tests/test_restore.py
 
+      - name: The handover happens in the right order
+        run: python tests/test_handover.py
+
       - name: Protocol handshake and tool list
         shell: python
         run: |

@@ -1676,19 +1676,40 @@ def _vordergrund_setzen(hwnd):
 
 
 def _fokus_zurueck(zustand):
-    """Give back the window, the focused control and the caret, and prove it."""
+    """
+    Give the screen back exactly as it was, and prove each part.
+
+    The window comes first, and it does most of the work on its own: Windows
+    remembers, per window, which control last had the keyboard, and restores it
+    when that window returns to the foreground. The control and its caret come
+    back with it, untouched, because the application never lost them - only the
+    window lost the foreground.
+
+    So forcing SetFocus afterwards is not just unnecessary, it is harmful: it
+    can move the caret to the start of a field that Windows had already restored
+    perfectly. It is therefore only used when the window came back and the focus
+    still does not match, which is the case where the focus moved *within* one
+    window rather than between two.
+    """
     if not zustand:
         return {"window": False, "control": False}
+
     ergebnis = {"window": _safe(lambda: _vordergrund_setzen(zustand.get("hwnd")),
                                 False),
-                "control": False}
+                "control": False, "forced": False}
+
+    gewollt = zustand.get("kennung")
+    if gewollt and _safe(_fokus_kennung) == gewollt:
+        ergebnis["control"] = True          # Windows already did it
+        return ergebnis
+
     ref = zustand.get("ref")
-    if ref:
+    if ref and gewollt:
         try:
             el = _resolve(ref)
             if _safe(lambda: el.SetFocus(), "fehler") != "fehler":
-                jetzt = _fokus_kennung()
-                ergebnis["control"] = bool(jetzt) and jetzt == zustand.get("kennung")
+                ergebnis["forced"] = True
+                ergebnis["control"] = _safe(_fokus_kennung) == gewollt
         except Exception:
             pass
     return ergebnis
@@ -1733,15 +1754,38 @@ class _eingabe_laeuft(object):
         self.gesichert = None
 
     def _freigeben(self):
+        """
+        Put everything back, then hand the input over. That order.
+
+        It used to release the lock first and restore afterwards, which is the
+        same race as checking before locking - only mirrored. Between the two
+        the user is free to type while the screen still points at whatever the
+        action left behind, so a keystroke lands in the wrong window at the very
+        moment the guard believes it is finished.
+
+        Restoring under the lock costs a few milliseconds and closes the gap
+        completely: by the time the keyboard comes back, the screen already
+        looks the way it did before.
+        """
         _OVERLAY["tiefe"] = max(0, _OVERLAY["tiefe"] - 1)
-        if _OVERLAY["tiefe"] == 0:
-            _overlay_sagen("release")
-            # Recorded rather than discarded: a restore that quietly fails is
-            # indistinguishable from one that never ran, and that is how this
-            # went unnoticed before. _letzte_rueckgabe is read by the tools so
-            # the reply can say whether the screen was really handed back.
-            _RUECKGABE.clear()
-            _RUECKGABE.update(_fokus_zurueck(self.gesichert) or {})
+        if _OVERLAY["tiefe"] != 0:
+            return
+        # 1. restore, still frozen
+        rueck = _safe(lambda: _fokus_zurueck(self.gesichert), None) or {}
+        # 2. one retry if the window did not come back - applications sometimes
+        #    take a moment to settle after being operated
+        if not rueck.get("window") and self.gesichert.get("hwnd"):
+            import time as _t
+            _t.sleep(0.08)
+            rueck = _safe(lambda: _fokus_zurueck(self.gesichert), None) or rueck
+            rueck["retried"] = True
+        # 3. only now give the input back
+        _overlay_sagen("release")
+        # Recorded rather than discarded: a restore that quietly fails and one
+        # that never ran look identical from outside, which is exactly how the
+        # broken version survived for weeks.
+        _RUECKGABE.clear()
+        _RUECKGABE.update(rueck)
 
     def __enter__(self):
         _OVERLAY["tiefe"] += 1
@@ -1749,8 +1793,11 @@ class _eingabe_laeuft(object):
             return self
         _OVERLAY["abort"] = False
         _OVERLAY["go"] = False
-        self.gesichert = _fokus_sichern()
-
+        # Note: the state is NOT saved here. It is saved after the lock has
+        # closed and the queue has settled - see _nach_dem_sperren. Saving
+        # first would record the screen as it was before the user's last
+        # keystroke arrived, and then faithfully restore them to a moment that
+        # never finished happening.
         import time as _t
 
         if not GUARD.get("enabled", True) or _OVERLAY["off"]:
@@ -1788,11 +1835,20 @@ class _eingabe_laeuft(object):
         return self
 
     def _nach_dem_sperren(self):
-        """Let the last input land, then verify the target, still under lock."""
-        if self.pruefen is None:
-            return
+        """
+        Under the lock: let the last input land, photograph the screen, verify.
+
+        All three have to happen here and in this order. The settle is because a
+        keystroke made a moment ago is still in the message queue when the lock
+        closes. The save is after it, so what gets restored later is the screen
+        as it truly ended up, not as it was mid-keystroke. The check is last,
+        because it should judge that same settled state.
+        """
         import time as _t
         _t.sleep(BERUHIGEN_MS / 1000.0)
+        self.gesichert = _safe(_fokus_sichern, {}) or {}
+        if self.pruefen is None:
+            return
         try:
             _lage_pruefen(*self.pruefen)
         except Exception:
