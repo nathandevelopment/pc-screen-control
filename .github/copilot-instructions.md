@@ -122,12 +122,15 @@ Most of this is done. What remains is the last case.
 - [x] `claim_window` parks a window where the mouse physically cannot reach
 - [x] Crash rescue: a parked window is written to disk and recovered on restart
 - [x] Rubber-band pulse, Escape never swallowed, ten-second watchdog
-- [ ] **Window-targeted input (`PostMessage`) as rung 3.5.** Decision gate:
-      measure `WM_LBUTTONDOWN` / `WM_CHAR` against Win32, Qt (DaVinci Resolve)
-      and Chromium. Ship only if it works on at least two of the three, and
-      report per call which route was used. If it fails the gate, say so in the
-      README and leave the canvas case on rung 4. **Do not ship it untested
-      because it sounds good.**
+- [x] **Window-targeted input (`PostMessage`) as rung 3.5.** ~~Decision gate:
+      measure against Win32, Qt, Chromium.~~ **MEASURED AND REJECTED.** On a real
+      desktop, none of the three framework families gives its controls their own
+      window handle — Qt (DaVinci) and Chromium (browsers) paint everything into
+      one window, and even Win32 apps increasingly do. There is nothing for
+      `PostMessage` to address, so it would fail on exactly the applications it
+      was wanted for. Recorded in CHANGELOG under rejected approaches. **Do not
+      re-propose this** without new evidence that the framework situation has
+      changed.
 
 ### C. Idiot-proofing — the part that decides whether anyone gets this far
 

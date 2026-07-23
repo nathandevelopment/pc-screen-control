@@ -24,6 +24,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r src/requirements.txt
 
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check src/ tests/
+
       - name: Compile
         run: python -m py_compile src/server.py
 
@@ -39,6 +44,9 @@ jobs:
 
       - name: Setup logic
         run: python tests/test_installer.py
+
+      - name: Update download is verified against its hash
+        run: python tests/test_update_verify.py
 
       - name: Non-ASCII survives the protocol
         run: python tests/test_encoding.py

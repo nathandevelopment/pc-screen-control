@@ -249,6 +249,8 @@ server. You lose precision and proof, not access.
   moves the mouse is structurally indistinguishable from spyware. There is no
   signature and no company here — but the whole server is one readable Python
   file, which is a better basis for trust than a signature would be.
+  [docs/ANTIVIRUS.md](docs/ANTIVIRUS.md) has the full explanation and how to
+  make the warning stop without disabling your protection.
 - **Administrator processes are invisible.** Windows blocks input across
   integrity levels by design.
 - **No undo of its own.** `send_keys {Ctrl}z` reaches the application's undo.

@@ -135,10 +135,38 @@ def _require_uia():
         raise RuntimeError("uiautomation is not installed (%s)" % _UIA_ERROR)
 
 
+# A bounded record of what _safe swallowed. The swallowing itself is on
+# purpose - one control that refuses to answer must not abort a walk over two
+# hundred of them - but Copilot's review was right that a swallowed error which
+# is also invisible is how three real bugs survived for weeks here. So the
+# swallow stays and the silence goes: every caught exception leaves its type,
+# message and the line it was raised on, bounded so it can never grow without
+# limit, and self_test hands the recent ones back. Recording only the failures
+# keeps this cheap even though _safe runs thousands of times per tree walk.
+import collections as _collections
+_FEHLER_LOG = _collections.deque(maxlen=100)
+_FEHLER_ZAEHLER = {"total": 0}
+
+
+def _fehler_merken(e):
+    _FEHLER_ZAEHLER["total"] += 1
+    try:
+        tb = getattr(e, "__traceback__", None)
+        while tb is not None and tb.tb_next is not None:
+            tb = tb.tb_next
+        wo = ("%s:%d" % (tb.tb_frame.f_code.co_name, tb.tb_lineno)
+              if tb is not None else "?")
+    except Exception:
+        wo = "?"
+    _FEHLER_LOG.append({"type": type(e).__name__,
+                        "message": str(e)[:160], "where": wo})
+
+
 def _safe(fn, default=None):
     try:
         return fn()
-    except Exception:
+    except Exception as e:
+        _fehler_merken(e)
         return default
 
 
@@ -500,6 +528,8 @@ def _aufwecken(hwnd, klasse):
 
 # ------------------------------------------------------------------ reading
 def t_describe_screen(args):
+    import time as _t
+    _begonnen = _t.time()
     res = []
     for w in _top_windows():
         if not w["title"] or w["offscreen"]:
@@ -537,12 +567,25 @@ def t_describe_screen(args):
                                     "one.")
         res.append(eintrag)
     res.sort(key=lambda r: -r["probe_nodes"])
+    dauer = round(_t.time() - _begonnen, 2)
+    hinweis = ("Work down the ladder and stop at the first rung that works: "
+               "read_ui_tree / find_elements, then invoke / set_text / "
+               "set_value / toggle / select, then capture, and only then "
+               "click / drag / send_keys - the last rung takes the user's "
+               "mouse away from them.")
+    if dauer > 2.0:
+        # This is the slowest tool and every task is told to start with it, so
+        # it should not hide what it spent. When it is expensive, say why: the
+        # cost is one probe per window plus waking any browser or Electron
+        # window that answered shallow, and a caller who already knows the
+        # window it wants can skip straight to read_ui_tree.
+        hinweis += (" This call took %.1fs across %d window(s) - most of that "
+                    "is waking browser and Electron windows so they report "
+                    "their real size. If you already know which window you "
+                    "want, read_ui_tree on it directly is far cheaper than "
+                    "describing everything." % (dauer, len(res)))
     return {"windows": res, "count": len(res),
-            "note": "Work down the ladder and stop at the first rung that "
-                    "works: read_ui_tree / find_elements, then invoke / "
-                    "set_text / set_value / toggle / select, then capture, "
-                    "and only then click / drag / send_keys - the last rung "
-                    "takes the user's mouse away from them."}
+            "seconds": dauer, "note": hinweis}
 
 
 def t_list_windows(args):
@@ -1658,10 +1701,15 @@ def _vordergrund_setzen(hwnd):
     once have run. It was reported as "it takes my focus and does not give it
     back", and that is exactly what was happening.
 
-    The documented way through is to attach our input queue to the thread that
-    currently owns the foreground: for the duration of that attachment Windows
-    treats the request as coming from the foreground thread itself, so the call
-    is granted. We detach immediately afterwards.
+    Two mechanisms are needed together, and one alone was not enough - the test
+    caught a real case where attaching to the foreground thread still left the
+    call refused, because Windows also enforces a *foreground lock timeout* that
+    blocks a background process from stealing focus for a short window after the
+    last user input. So this does both: it drops that lock timeout to zero for
+    the duration (restoring it after), and it attaches our input queue to the
+    threads of both the current foreground window and the target - for the span
+    of the attachment Windows treats the request as coming from those threads
+    themselves. Everything is undone immediately afterwards.
     """
     import ctypes
     if not hwnd:
@@ -1676,6 +1724,8 @@ def _vordergrund_setzen(hwnd):
     u.IsIconic.argtypes = [ctypes.c_void_p]
     u.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     u.GetWindowThreadProcessId.restype = ctypes.c_ulong
+    u.SystemParametersInfoW.argtypes = [ctypes.c_uint, ctypes.c_uint,
+                                        ctypes.c_void_p, ctypes.c_uint]
 
     ziel = ctypes.c_void_p(int(hwnd))
     if int(u.GetForegroundWindow() or 0) == int(hwnd):
@@ -1684,18 +1734,31 @@ def _vordergrund_setzen(hwnd):
     if u.IsIconic(ziel):
         u.ShowWindow(ziel, 9)                    # SW_RESTORE
 
+    SPI_GET, SPI_SET = 0x2000, 0x2001            # FOREGROUNDLOCKTIMEOUT
+    alt_timeout = ctypes.c_uint(0)
+    u.SystemParametersInfoW(SPI_GET, 0, ctypes.byref(alt_timeout), 0)
+    # Drop the lock to zero so a background process is allowed to set the
+    # foreground at all. SPIF_SENDCHANGE = 2 so the change takes effect now.
+    u.SystemParametersInfoW(SPI_SET, 0, ctypes.c_void_p(0), 2)
+
+    eigen = k.GetCurrentThreadId()
     vorne = u.GetForegroundWindow()
     fremd = u.GetWindowThreadProcessId(ctypes.c_void_p(vorne or 0), None)
-    eigen = k.GetCurrentThreadId()
-    angehaengt = False
-    if fremd and fremd != eigen:
-        angehaengt = bool(u.AttachThreadInput(eigen, fremd, True))
+    ziel_thread = u.GetWindowThreadProcessId(ziel, None)
+    angehaengt = []
+    for t in (fremd, ziel_thread):
+        if t and t != eigen and t not in angehaengt:
+            if u.AttachThreadInput(eigen, t, True):
+                angehaengt.append(t)
     try:
         u.BringWindowToTop(ziel)
         u.SetForegroundWindow(ziel)
+        u.ShowWindow(ziel, 5)                    # SW_SHOW, nudge z-order
     finally:
-        if angehaengt:
-            u.AttachThreadInput(eigen, fremd, False)
+        for t in angehaengt:
+            u.AttachThreadInput(eigen, t, False)
+        # Put the user's lock timeout back exactly as it was.
+        u.SystemParametersInfoW(SPI_SET, alt_timeout.value, ctypes.c_void_p(0), 2)
 
     # Say it worked only if it worked.
     return int(u.GetForegroundWindow() or 0) == int(hwnd)
@@ -2176,7 +2239,8 @@ def t_batch(args):
 # --------------------------------------------------------------- processes
 def t_launch_app(args):
     """Start a program and wait until its window exists."""
-    import subprocess, time as _t
+    import subprocess
+    import time as _t
     befehl = str(args["command"])
     titel = args.get("await_title")
     try:
@@ -2312,12 +2376,26 @@ def t_self_test(args):
            "Install Python 3.9 or newer from python.org and tick "
            "'Add python.exe to PATH' during setup.")
 
+    # The Microsoft Store ships a stub at ...\WindowsApps\python.exe that opens
+    # the Store instead of running anything. If this server is running we are
+    # clearly not on the stub - but naming the real path in the report means a
+    # bug report shows at a glance whether Claude is pointed at a real Python or
+    # at something odd, which is the single most common install failure.
+    exe = sys.executable or ""
+    ist_stub = "WindowsApps" in exe and os.path.getsize(exe or ".") < 100000 \
+        if os.path.isfile(exe) else False
+    pruefe("Is this a real Python, not the Store stub?", not ist_stub, exe,
+           "This looks like the Microsoft Store placeholder, which cannot run "
+           "Python. Install real Python from python.org, tick 'Add python.exe "
+           "to PATH', and reinstall this extension so it points at the real "
+           "one.")
+
     pruefe("Is this Windows?", os.name == "nt",
            "%s %s" % (platform.system(), platform.release()),
            "This server only works on Windows. docs/PORTING.md explains why.")
 
     try:
-        import uiautomation as _a
+        import uiautomation as _a  # noqa: F401 - presence is the check
         uia_da = True
         uia_info = "installed"
     except Exception as e:
@@ -2327,7 +2405,7 @@ def t_self_test(args):
            "Run: pip install uiautomation")
 
     try:
-        import PIL
+        import PIL  # noqa: F401 - presence is the check
         bild = "installed"
         bild_ok = True
     except Exception:
@@ -2410,11 +2488,18 @@ def t_self_test(args):
                 if p["check"] not in
                 ("Can it take pictures? (only needed for capture)",)]
 
+    # What got swallowed since the server started. Almost always empty or
+    # harmless - a control that had no name is not a fault - but if something is
+    # going wrong, this is where the evidence is, instead of nowhere.
+    letzte_fehler = list(_FEHLER_LOG)[-8:]
+
     return {"ok": not kritisch,
             "version": SERVER_VERSION,
             "tools": len(TOOLS),
             "checks": pruefungen,
             "failed": len(schlecht),
+            "swallowed_errors_total": _FEHLER_ZAEHLER["total"],
+            "swallowed_errors_recent": letzte_fehler,
             "verdict": ("Everything works." if not schlecht else
                         "Working, with one thing missing - see 'fix'."
                         if not kritisch else
@@ -2665,6 +2750,19 @@ def t_check_for_update(args):
         erg["note"] = "You are on the latest version."
         return erg
 
+    # The release notes publish the package's SHA-256. Pull it out now so the
+    # download can be checked against it. A published number that a download is
+    # never compared to is theatre; a mismatch means the file in your hands is
+    # not the file that was released, and the only safe response is to refuse
+    # it and delete it - the whole point of an unsigned tool being auditable is
+    # that the audited bytes are the bytes you run.
+    import hashlib
+    import re as _re
+    m = _re.search(r"SHA-?256[^0-9a-fA-F]*([0-9a-fA-F]{64})",
+                   daten.get("body") or "", _re.IGNORECASE)
+    erwarteter_hash = m.group(1).lower() if m else None
+    erg["expected_sha256"] = erwarteter_hash
+
     if laden and erg["download_url"]:
         ziel_ordner = os.path.join(os.path.expanduser("~"), "Downloads")
         try:
@@ -2674,15 +2772,52 @@ def t_check_for_update(args):
                 erg["download_url"], headers={"User-Agent": "pc-screen-control"})
             with urllib.request.urlopen(
                     dl, timeout=60,
-                    context=ssl.create_default_context()) as r, \
-                    open(ziel, "wb") as fh:
-                fh.write(r.read())
+                    context=ssl.create_default_context()) as r:
+                rohdaten = r.read()
+
+            tatsaechlich = hashlib.sha256(rohdaten).hexdigest()
+            erg["actual_sha256"] = tatsaechlich
+
+            if erwarteter_hash is None:
+                # No hash to check against. Do not silently accept - say so, and
+                # do not write the file, so the user is never handed something
+                # unverifiable while believing it was verified.
+                erg["verified"] = False
+                erg["note"] = (
+                    "Version %s downloaded into memory, but its release notes "
+                    "carry no SHA-256 to check it against, so it was NOT saved. "
+                    "This is unusual for a real release. Get it from the "
+                    "release page by hand and check it yourself, or treat it "
+                    "as suspect." % neueste)
+                return erg
+
+            if tatsaechlich != erwarteter_hash:
+                # The bytes do not match what was published. Refuse, and do not
+                # leave the file on disk where it might be installed by mistake.
+                erg["verified"] = False
+                erg["ok"] = False
+                erg["note"] = (
+                    "REFUSED: the downloaded file does not match the SHA-256 in "
+                    "the release notes. Expected %s, got %s. Nothing was saved. "
+                    "This can mean a corrupted download - or that the file was "
+                    "tampered with in transit. Do not install anything; tell "
+                    "the user, and try again or fetch it from the release page "
+                    "over a connection you trust."
+                    % (erwarteter_hash, tatsaechlich))
+                return erg
+
+            # Verified. Only now does it touch the disk.
+            with open(ziel, "wb") as fh:
+                fh.write(rohdaten)
+            erg["verified"] = True
             erg["downloaded_to"] = ziel
             erg["note"] = (
-                "Downloaded %s to your Downloads folder. To update: in Claude, "
-                "Settings -> Extensions -> Install extension, pick this file - "
-                "it replaces the running version - then restart Claude. Nothing "
-                "to uninstall first." % os.path.basename(ziel))
+                "Downloaded %s to your Downloads folder and verified its "
+                "SHA-256 against the release notes - the file is exactly what "
+                "was published. To update: in Claude, Settings -> Extensions "
+                "-> Install extension, pick this file (it replaces the running "
+                "version), then restart Claude. Nothing to uninstall first."
+                % os.path.basename(ziel))
         except Exception as e:
             erg["download_error"] = "%s: %s" % (type(e).__name__, e)
             erg["note"] = ("Version %s is available at the release page, but "
@@ -2875,7 +3010,7 @@ TOOLS = [
          "priority": {"type": "string", "enum": ["claude", "me"]},
          "enabled": B, "idle_ms": I}}},
     {"name": "check_for_update", "_fn": t_check_for_update,
-     "description": "Checks GitHub for a newer version of this extension. THE ONLY TOOL THAT USES THE NETWORK, and only when called - there is no background check. At the start of a session you MAY call it once with only_if_due:true; that reads a local timestamp and returns instantly without any network unless a month has passed since the last real check, so it is safe and quiet. If newer_available is true, tell the user the version and offer to fetch it; call again with download:true to save the .mcpb to their Downloads folder. They then install it via Settings -> Extensions -> Install extension, which replaces the running version - no uninstall needed - and restart Claude. Do not nag: mention an update at most once per session.",
+     "description": "Checks GitHub for a newer version of this extension. THE ONLY TOOL THAT USES THE NETWORK, and only when called - there is no background check. At the start of a session you MAY call it once with only_if_due:true; that reads a local timestamp and returns instantly without any network unless a month has passed since the last real check, so it is safe and quiet. If newer_available is true, tell the user the version and offer to fetch it; call again with download:true to save the .mcpb to their Downloads folder. The download is verified against the SHA-256 published in the release notes before it is written; on a mismatch it is REFUSED and nothing is saved, so if you get a refusal do not try to work around it - report it. After a verified download they install it via Settings -> Extensions -> Install extension, which replaces the running version - no uninstall needed - and restart Claude. Do not nag: mention an update at most once per session.",
      "inputSchema": {"type": "object", "properties": {
          "only_if_due": B, "download": B}}},
 ]
@@ -3126,7 +3261,7 @@ def _install_write_config(label, path, server_path):
 
 def _install_selftest():
     try:
-        import uiautomation as _a
+        import uiautomation as _a  # noqa: F401 - presence is the check
         n = len(_a.GetRootControl().GetChildren())
         return True, "%d top-level windows visible" % n
     except Exception as e:

@@ -37,6 +37,9 @@ is more useful than hoping nobody notices, so:
   which case no hook is ever installed. Actions then run without pausing you.
 
 Your antivirus may object to this, and that is a reasonable thing for it to do.
+[docs/ANTIVIRUS.md](../docs/ANTIVIRUS.md) explains exactly why, how to verify
+what the hooks do, and how to make the warning stop without disabling your
+protection.
 
 ## What it cannot do
 

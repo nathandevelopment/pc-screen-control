@@ -1,0 +1,35 @@
+# Linting only. This project ships no package - it is a single server file plus
+# tests - so there is nothing to build here, just a check that the code stays
+# tidy. ruff is run in CI on every push.
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# The default E (pycodestyle) and F (pyflakes) sets, which is what catches the
+# things that actually bite: unused imports, undefined names, real style slips.
+select = ["E", "F", "W"]
+
+ignore = [
+    # S, I and B are one-letter JSON-schema shorthands used dozens of times to
+    # keep the tool table readable (I = integer, S = string, B = boolean). E741
+    # flags "I" as ambiguous, which is fair in general and deliberate here.
+    "E741",
+    # A handful of imports sit next to the code that uses them rather than at
+    # the top of the file - _safe's error buffer, the lazy ctypes and time
+    # imports inside tools - because putting Windows-only imports at module top
+    # would break the tests that run on Linux CI. That is a considered choice,
+    # not an oversight.
+    "E402",
+    # The MCP tool descriptions are single-line strings, deliberately, and some
+    # run past 100 characters because they are one continuous instruction to
+    # the model. Wrapping them would put line breaks inside prose that is meant
+    # to be read as one sentence. Line length is not a quality signal here.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The tests deliberately import a module purely to check that it is installed;
+# the import is the assertion, so "imported but unused" is the wrong call there.
+"tests/*" = ["F401"]

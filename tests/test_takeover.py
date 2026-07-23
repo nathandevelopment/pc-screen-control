@@ -22,7 +22,6 @@ Checked here:
   3. force=true     -> goes through anyway, because sometimes it is right.
 """
 import os
-import subprocess
 import sys
 import time
 

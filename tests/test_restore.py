@@ -54,6 +54,21 @@ def main():
     u = ctypes.windll.user32
     u.GetForegroundWindow.restype = ctypes.c_void_p
 
+    # Establish the precondition this test needs and that real usage always has:
+    # a process that recently generated input is allowed to change the
+    # foreground. A cold test process launched in the background is not, and
+    # would otherwise skip at random depending on who launched it. One synthetic
+    # no-op mouse event grants the right deterministically - this is setup, not
+    # the thing under test. If even this does not take (a truly headless runner
+    # with no input desktop), the move below will not happen and the test skips
+    # honestly.
+    try:
+        MOUSEEVENTF_MOVE = 0x0001
+        u.mouse_event(MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+        time.sleep(0.05)
+    except Exception:
+        pass
+
     fenster = [w for w in server._top_windows()
                if w["title"] and not w["offscreen"]]
     selbst_geoeffnet = None

@@ -123,6 +123,19 @@ You can also ask at any time: *"Is there a new version of PC Screen Control?"*
 
 ## When something does not work
 
+**First, ask Claude to run `self_test`.** It checks ten things in plain
+language and every failure tells you the fix. Most problems below are on that
+list, and its output is also the most useful thing to paste into a bug report.
+
+**The extension installed but does nothing / shows an error.** This is almost
+always Python. Either it is not installed, or the box **"Add python.exe to
+PATH"** was not ticked during its setup, so Claude cannot find it to start the
+server. Reinstall Python from [python.org](https://www.python.org/downloads/)
+with that box ticked, then remove and reinstall the extension so it points at
+the real Python. If you have the *Microsoft Store* version of Python, that one
+often does not work here — install the one from python.org instead. `self_test`
+will tell you which Python it is running and whether it is the Store stub.
+
 **A window shows `shallow` or few nodes.** Ask Claude to read it once anyway —
 browsers and Electron apps build their accessibility tree only when something
 first asks for it.

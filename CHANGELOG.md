@@ -122,6 +122,42 @@ contradicted on your own machine.
 Every tool that steps down a rung now reports `"how"` and `"took_input"` in its
 reply, so a fallback is never silent.
 
+### Trust, sharpened after review
+
+An outside review (GitHub Copilot) prompted four changes. It was right on each.
+
+- **The update download is now verified against its published hash.**
+  `check_for_update` reads the SHA-256 from the release notes, hashes what it
+  downloaded, and only writes the file if they match. On a mismatch it refuses,
+  reports both hashes, and saves nothing — a corrupted or tampered download can
+  no longer reach your Downloads folder wearing the right name. A published hash
+  that nothing checks against is not protection; this closes that gap.
+- **Swallowed errors are no longer invisible.** `_safe()` still swallows — one
+  control that refuses to answer must not abort a walk over two hundred of them
+  — but it now records the type, message and line of every exception it catches,
+  bounded to the last hundred, and `self_test` hands the recent ones back. Three
+  real bugs survived for weeks here precisely because a swallowed error was also
+  a silent one.
+- **`ruff` runs in CI** on every push, and the whole codebase passes it clean.
+- **An antivirus FAQ**, `docs/ANTIVIRUS.md`: why a scanner flags this, exactly
+  what the input hooks do and do not do, how to verify that yourself, and how to
+  make the warning stop — including turning the guard off entirely — without
+  ever being told to disable your protection.
+
+### Sharper edges for the person installing it
+
+- **`self_test`** — ten checks in plain language, each failure carrying its fix,
+  now also reporting which Python it runs under (so a Store-stub install shows at
+  a glance) and any errors swallowed since startup.
+- **Irreversible actions ask twice.** `close_window` refuses on the first call
+  and describes what would be lost; a second call with `confirm:true` proceeds.
+  The description reaches the person before the loss, not after.
+- **The first run explains its own delay** in the first reply, instead of half a
+  minute of apparent silence while it installs what it needs.
+- **`describe_screen` reports what it spent** when a call runs long, and points a
+  caller who already knows their window straight at the cheaper `read_ui_tree`.
+- **Claimed windows are marked** wherever windows are listed.
+
 ### Approaches rejected, and why
 
 - **`BlockInput` for the guard.** Needs administrator rights. A tool strangers
@@ -131,6 +167,15 @@ reply, so a fallback is never silent.
 - **One full-screen window for the edge glow.** ~36 MB per frame; animation
   impossible. Four thin edge bars measure 0.6 ms per frame, which is what makes
   the pulse possible.
+- **Window messages (`PostMessage`) to click a parked window without the
+  pointer.** This would have let `claim_window` operate its window while it sits
+  out of reach of the mouse — a "rung 3.5" between patterns and real clicks.
+  Measured against every framework family open on a real desktop: Win32, Qt
+  (DaVinci Resolve) and Chromium (Edge, the Claude window). None of them gives
+  its buttons and fields their own window handle — modern toolkits paint
+  everything into one window, so there is nothing for `PostMessage` to address.
+  It would have failed on exactly the applications it was wanted for. Rejected
+  on the measurement, not built on the hope.
 
 ### Known limits
 

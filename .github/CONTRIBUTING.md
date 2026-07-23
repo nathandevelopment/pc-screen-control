@@ -12,6 +12,7 @@ someone running it against software I do not own.
 ```
 pip install -r src/requirements.txt
 python tests/test_installer.py     # setup logic, runs anywhere
+python tests/test_update_verify.py # the update download is hash-checked
 python tests/test_encoding.py      # non-ASCII survives the protocol
 python tests/test_refs.py          # refs resolve, and invoke refuses the mouse
 python tests/test_takeover.py      # blind input stops if the user took over
@@ -23,7 +24,7 @@ python tests/stress.py             # cost, nonsense, broken protocol, ~1 min
 python src/server.py --install     # register it with your MCP client
 ```
 
-CI runs all nine on Windows against Python 3.9, 3.11 and 3.13.
+CI runs all ten on Windows against Python 3.9, 3.11 and 3.13.
 
 ## The one rule
 
