@@ -15,7 +15,7 @@
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-0f172a?style=flat-square">
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0f172a?style=flat-square">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-0f172a?style=flat-square">
-  <img alt="35 tools" src="https://img.shields.io/badge/tools-35-22d3ee?style=flat-square">
+  <img alt="34 tools" src="https://img.shields.io/badge/tools-34-22d3ee?style=flat-square">
   <a href="../../actions/workflows/ci.yml"><img alt="CI" src="../../actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
@@ -24,9 +24,11 @@
 ## Install
 
 This is a plain MCP server, so **any MCP client can use it** — Claude Desktop,
-Claude Code, Cline, Continue, Zed, or something you wrote yourself. The
-one-click `.mcpb` below is Claude Desktop's bundle format; for everything else
-there is a four-line config at the bottom of this page.
+Claude Code, Cursor, VS Code, Cline, Zed, or **GPT through the OpenAI Agents
+SDK**. It is one package, not one per client: the same `server.py` for all of
+them, each running it locally and offline. The one-click `.mcpb` below is Claude
+Desktop's bundle format; for everything else there is a small config —
+see **[docs/OTHER_CLIENTS.md](docs/OTHER_CLIENTS.md)**.
 
 Needs Windows and [Python 3.9+](https://www.python.org/downloads/) — tick **"Add
 python.exe to PATH"** during its setup.
@@ -188,7 +190,7 @@ you write something that breaks abroad.
 
 ---
 
-## The 35 tools
+## The 34 tools
 
 | | |
 |---|---|
@@ -210,7 +212,6 @@ you write something that breaks abroad.
 | **`self_test`** | Checks everything and says in plain words what is wrong and what to do |
 | **`claim_window`** `release_window` | Park a window where your mouse cannot reach, and put it back to the pixel |
 | **`set_guard`** | Who has priority while Claude uses the mouse — `claude` or `me` |
-| **`check_for_update`** | The one tool that goes online, on request |
 
 ---
 
@@ -277,27 +278,35 @@ automation is flaky.
 ```
 src/      the server — one readable Python file, plus the screen-edge overlay
 tests/    run these yourself: setup logic, a desktop measurement, a stress test
-docs/     the install guide, and the map for a macOS port
-scripts/  install from source, without the extension
+docs/     the install guide, using it with other clients (GPT etc.), macOS map
+scripts/  install from source, print a client config, check for updates
 ```
 
 <details>
-<summary>Other MCP clients — Claude Code, Cline, Continue, Zed, your own</summary>
+<summary>Other MCP clients — Claude Code, Cursor, VS Code, Cline, Zed, and GPT via the OpenAI Agents SDK</summary>
+
+Same server, same files — only the pointer differs. The `.mcpb` is a ZIP:
+unzip it and its libraries are already in `lib/` beside `server.py`, so it runs
+with nothing to install. Point a config-file client at that path:
 
 ```json
 {
   "mcpServers": {
     "pc-screen-control": {
-      "command": "C:/Path/To/python.exe",
-      "args": ["C:/Users/you/AppData/Local/pc-screen-control/server.py"]
+      "command": "python",
+      "args": ["C:/Tools/pc-screen-control/server.py"]
     }
   }
 }
 ```
 
-Requires `uiautomation`; `pillow` only for `capture`. The server installs both
-on first run. `python src\server.py --install` does the setup without the batch
-wrapper.
+**GPT** runs it the same way through the OpenAI Agents SDK (`MCPServerStdio`,
+pointing at the same `server.py`) — local, offline, no hosting. The ChatGPT
+consumer app is deliberately not supported, because it only connects to remote
+URL servers and this one never goes on the network.
+
+Run `scripts\print-config.py` to print the block above with your real path
+filled in. Full walkthrough, GPT snippet included: **[docs/OTHER_CLIENTS.md](docs/OTHER_CLIENTS.md)**.
 
 </details>
 
@@ -310,10 +319,11 @@ windows and drag things, including in applications holding unsaved work.
 
 Provided **as is**, without warranty — see `LICENSE`. You are responsible for
 what you automate with it; test on something you can afford to lose. It collects
-no data and sends none. Exactly one tool, `check_for_update`, reaches the
-network, and only when it is called; the other 34 make no outbound connection at
-all. Automating third-party software may conflict with that software's terms of
-use. [SECURITY.md](.github/SECURITY.md) has the threat model.
+no data and sends none: none of the 34 tools makes any outbound connection, and
+the server installs nothing when it starts — its libraries ship inside the
+package. Checking for a new version is a separate program you run by hand.
+Automating third-party software may conflict with that software's terms of use.
+[SECURITY.md](.github/SECURITY.md) has the threat model.
 
 Early software, written by one person in their spare time. No support
 obligation, no service level, no guarantee of maintenance.

@@ -29,9 +29,11 @@ reader uses.
   Windows marked the event as injected - and returns either "swallow" or "pass
   on". No key value is read, stored, counted, logged or sent. The whole hook
   path is about forty lines in `src/overlay.py`; read them.
-- **It reaches the network exactly once, on request.** Only `check_for_update`
-  makes any outbound connection, and only when you call it. Every other tool is
-  offline. See `SECURITY.md`.
+- **It reaches the network never.** No tool makes an outbound connection, and
+  the server installs nothing when it starts — its two libraries ship inside the
+  package. Checking for a new version is a separate program you run by hand
+  (`scripts/CHECK-FOR-UPDATES`), not a tool the server can trigger.
+  `tests/test_offline.py` proves this on every push. See `SECURITY.md`.
 - **The hooks exist only while an action is holding your input** - installed
   when the lock closes, removed when it opens. Not at startup, not in the
   background, not between calls.
@@ -43,10 +45,14 @@ Python file:
 
 1. Open `src/overlay.py` and search for `WH_KEYBOARD_LL`. The callback around it
    is short. Confirm it stores nothing.
-2. Open `src/server.py` and search for `urllib` - the network code. Confirm it
-   sits only inside `check_for_update`.
+2. Open `src/server.py` and search for `urllib`, `socket`, `http` or `requests`
+   - the words for network code. Confirm there are none. The only file that
+   talks to the network is `scripts/check-for-updates.py`, which the server
+   never calls.
 3. Run `tests/` on your own machine. The numbers in the README come from those
-   scripts, and they ship so you can contradict them.
+   scripts, and they ship so you can contradict them. `tests/test_offline.py` in
+   particular starts the server behind a socket tripwire and confirms it opens
+   nothing.
 
 ## How to make the warning stop
 
@@ -56,12 +62,12 @@ Pick whichever you are comfortable with, most-preferred first.
   disabled"* (`set_guard enabled:false`). No hook is ever installed after that.
   Actions still work; they just no longer pause you or warn you first. If the
   hook is what your scanner objects to, this removes the cause.
-- **Verify the download, then whitelist the file.** After
-  `check_for_update download:true`, compare the file's SHA-256 against the one
-  in the release notes (`Get-FileHash pc-screen-control.mcpb -Algorithm
-  SHA256`). Once it matches, you know the bytes are exactly what was published,
-  and adding that file to your scanner's exclusions is a decision you can make
-  with the hash in front of you.
+- **Verify the download, then whitelist the file.** The updater
+  (`scripts/CHECK-FOR-UPDATES`) already checks the download's SHA-256 against the
+  release notes and refuses on a mismatch; you can repeat the check yourself with
+  `Get-FileHash pc-screen-control.mcpb -Algorithm SHA256`. Once it matches, you
+  know the bytes are exactly what was published, and adding that file to your
+  scanner's exclusions is a decision you can make with the hash in front of you.
 - **Report it as a false positive.** Most scanners have a "submit for review"
   path. A behavioural flag on an open-source accessibility tool is a textbook
   false positive, and reporting it helps the next person too.

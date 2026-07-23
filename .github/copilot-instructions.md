@@ -6,10 +6,15 @@
 
 ## Start here
 
-**Current state:** v1.0.0 is released and working. 35 tools, 9 test files in CI
-on Python 3.9 / 3.11 / 3.13, all green. The published release matches this
-commit. The consistency checker that compares every number and claim across
-README, manifest, CHANGELOG, SECURITY and the built package passes.
+**Current state:** v1.1.0 is released and working. 34 tools, 9 test files in CI
+on Python 3.9 / 3.11 / 3.13, all green. v1.1.0 was a security pass: the update
+check left the server (it is a separate hand-run program now), the two libraries
+are bundled in `lib/` so the server installs nothing and reaches no network at
+run time (`tests/test_offline.py` proves it), `launch_app` refuses shells and
+URLs unless confirmed, and password fields read back as a placeholder. The
+published release matches this commit. The consistency checker that compares
+every number and claim across README, manifest, CHANGELOG, SECURITY and the
+built package passes.
 
 **Your job:** write the code. Take items from the Version 1 checklist below, in
 order — A1 (verify the update hash) is the most valuable and the most
@@ -210,8 +215,11 @@ for free; get it wrong and no amount of model quality repairs it.
 
 ### Constraints carried over from Version 1
 
-- Everything local unless the user explicitly asks otherwise. `check_for_update`
-  must remain the only tool that reaches the network by default.
+- Everything local. As of 1.1.0 **no tool reaches the network at all** — the
+  update check is a separate hand-run program and the dependencies are bundled.
+  Keep it that way: any perception feature (v2) processes frames locally, and
+  anything that would open a socket ships as a separate opt-in program a person
+  runs, never as a server tool. `tests/test_offline.py` is the guard.
 - Every observation reports its own confidence and its own cost, the same way
   every action reports before and after.
 - No new dependency without a measurement showing what it buys.

@@ -44,12 +44,17 @@ def main():
                     "method": "initialize", "params": {}}),
         # launch_app echoes the command back verbatim in its reply, which makes
         # it the cheapest tool to prove a round trip with. The path cannot
-        # exist, and the reply carries the string either way.
+        # exist, and the reply carries the string either way. Since 1.1.0
+        # launch_app validates its input and the plain path would be rejected as
+        # a non-existent program, so we pass confirm:true - the explicit path
+        # that runs the command as given and echoes it back unchanged, which is
+        # exactly the verbatim round trip this test needs.
         # ensure_ascii=False is the point of the whole test - see the module
         # docstring.
         json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                     "params": {"name": "launch_app",
-                               "arguments": {"command": "Z:\\" + PROBE}}},
+                               "arguments": {"command": "Z:\\" + PROBE,
+                                             "confirm": True}}},
                    ensure_ascii=False),
     ])
 

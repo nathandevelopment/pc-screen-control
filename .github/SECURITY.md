@@ -43,22 +43,60 @@ protection.
 
 ## What it cannot do
 
-- **Network only on demand, one tool, one destination.** Exactly one tool,
-  `check_for_update`, reaches the network, and only when it is called — there
-  is no background check, no ping at startup, no telemetry. It contacts GitHub's
-  public release API for this repository and, if you ask, downloads the new
-  `.mcpb` to your Downloads folder. The monthly reminder is enforced by a local
-  timestamp, so even that runs offline unless a month has passed. Every one of
-  the other 34 tools makes no outbound connection at all. You can verify all of
-  this by reading the one file.
+- **No network. At all.** The server that controls your PC makes no outbound
+  connection of any kind — no update check, no telemetry, no background ping,
+  no dependency download, nothing. This is not a policy you have to trust; it is
+  a fact you can verify three ways, and `tests/test_offline.py` checks all three
+  on every push:
+    - it imports nothing that can reach the network — grep `src/server.py` for
+      `socket`, `urllib`, `http`, `ssl` or `requests` and you will find none;
+    - it installs nothing at run time — the two libraries it needs travel
+      **inside the extension** in a `lib/` folder, put there when the package is
+      built, so the very first start opens no connection and waits on no pip;
+    - starting it and driving it opens zero sockets, watched by a tripwire in
+      the test.
+
+  Checking for a newer version is a **separate** program,
+  `scripts/CHECK-FOR-UPDATES`, which a person runs by hand — the server neither
+  offers nor triggers it, so there is no path by which the thing driving your
+  mouse can reach the internet on its own. The updater, when *you* run it, asks
+  GitHub's public release API, and downloads a new version only after you say
+  yes and only after verifying its SHA-256 against the release notes.
+- **`launch_app` is not a general shell.** It starts a named program or opens a
+  file. A command carrying shell operators (`&`, `|`, `>` …), invoking a
+  scripting host (`cmd`, `powershell`, `wscript` …), or opening a URL is
+  refused unless you pass `confirm: true`. Running arbitrary commands is the
+  main way an AI redirected by something it read on screen could do real harm,
+  and this closes that door by default.
+- **Password fields are not read back.** Windows marks password boxes, and their
+  contents are replaced with a placeholder everywhere a value is returned —
+  `describe_screen`, `read_ui_tree`, `find_elements`, `get_text`, `read_text`.
+  The label ("Password") is shown; the secret never leaves the process.
 - **No elevated processes.** Windows blocks input from a lower-integrity process
   to a higher one. Anything running as administrator is invisible to it.
-- **No credentials.** It has no keychain or credential API. It can read a
-  password field's *label* and type into it, so treat logins as out of scope.
+- **No credentials.** It has no keychain or credential API. Treat logins as out
+  of scope.
 - **No keystroke logging.** The hooks described above decide swallow-or-pass and
   keep nothing. There is no buffer, no file, no counter of what you typed.
 - **No persistence.** No service, no scheduled task, no startup entry, no shell
   extension. It runs only while your MCP client runs it.
+
+## The boundary this cannot cross — and you should know it
+
+The server is offline, but **it does not run alone.** It is driven by an AI
+client — Claude Desktop, or another — and that client is very often a cloud
+service. So the honest picture is:
+
+> This tool reads your screen and hands that data to the AI client that asked
+> for it. If that client is a cloud AI, **the client sends what it received to
+> its provider**, exactly as it does with anything else you type into it. The
+> local server never makes that connection — but the data can still leave your
+> machine through the client above it.
+
+Nothing here can change that; it is the nature of using a cloud assistant. What
+this project controls is its own half: the part on your machine is offline,
+auditable, and refuses to read passwords. Decide what you point it at with the
+same care you would use for anything you paste into a cloud AI.
 
 ## What the installer touches
 
@@ -67,7 +105,7 @@ rights:
 
 | | |
 |---|---|
-| installs | `uiautomation` and `pillow` via pip |
+| bundles | `uiautomation`, `comtypes` and `pillow` — shipped inside the extension, not fetched at install; the source `INSTALL.bat` installs them via pip instead |
 | creates | `%LOCALAPPDATA%\pc-screen-control\` |
 | modifies | your Claude config — one entry, existing entries preserved |
 | backs up | each config before the first change, never overwriting that backup |

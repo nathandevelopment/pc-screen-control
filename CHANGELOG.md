@@ -1,9 +1,69 @@
 # Changelog
 
+## 1.1.0
+
+A security pass. Nothing here adds a feature; it removes the ways the thing
+that drives your mouse could reach past the screen it is meant to stay on. Each
+claim below has a test next to it, because a security claim you cannot check is
+just a hope.
+
+### The core is offline — now literally, not almost
+
+1.0.0 said "no telemetry" and meant it, but two threads still reached the
+network: the update check, and a first-run `pip install` for the two libraries.
+Both are gone from the running server.
+
+- **The update check left the server.** `check_for_update` is no longer a tool.
+  Checking for a new version is a separate program, `scripts/check-for-updates.py`,
+  that a person runs by hand — it asks GitHub, and downloads a build only after
+  you say yes and only after its SHA-256 matches the release notes. The server
+  neither offers nor triggers it. Tool count drops 35 → **34**.
+- **The libraries travel inside the package.** `uiautomation`, `comtypes` and
+  `pillow` are now bundled in a `lib/` folder built into the extension, so the
+  first start installs nothing and waits on no download. A source checkout still
+  installs them once via `INSTALL.bat`; the packaged extension never does.
+- **`tests/test_offline.py` proves all of it** on every push: no networking
+  imports, no install at run time, and a socket tripwire that stays at zero
+  while the server starts and runs.
+
+### Two doors closed by default
+
+- **`launch_app` is no longer a general shell.** A command carrying shell
+  operators (`&`, `|`, `>`), invoking a scripting host (`cmd`, `powershell`,
+  `wscript`), or opening a URL is refused unless you pass `confirm: true`. This
+  is the main way an AI redirected by something it read on screen could do real
+  harm, and it is shut by default.
+- **Password fields are read back as a placeholder.** Windows marks password
+  boxes; their contents are now replaced with `••• (password field - contents
+  hidden)` everywhere a value is returned — `describe_screen`, `read_ui_tree`,
+  `find_elements`, `get_text`, `read_text`. The label stays; the secret never
+  leaves the process.
+
+### One thing this cannot fix, said plainly
+
+The local server is offline, but it does not run alone: the AI client above it
+is often a cloud service, and that client sends what it reads to its provider.
+`SECURITY.md` now states this boundary directly instead of leaving it implied —
+the part on your machine is offline and auditable; what you point it at still
+leaves through the client, exactly as anything you paste into a cloud assistant
+does.
+
+### One package, every local client — GPT included
+
+Making the server self-contained had a second effect: the `.mcpb` is now just a
+ZIP that any local MCP client can use. Unzip it and point the client at the
+`server.py` inside — the libraries are in `lib/` beside it, so it runs offline
+with nothing to install. New `docs/OTHER_CLIENTS.md` spells this out for Cursor,
+VS Code, Cline, Zed and **GPT via the OpenAI Agents SDK**, and `scripts/print-config.py`
+prints the config block with your real path filled in. The ChatGPT consumer app
+is deliberately out of scope: it only connects to a remote URL, and this server
+never goes on the network. There is no separate download per client — it is the
+same server for all of them.
+
 ## 1.0.0
 
 First public release. The version numbers before this one were private
-iterations and are not published; 1.0.0 is where the 32 tool names become a
+iterations and are not published; 1.0.0 is where the 35 tool names become a
 promise — if one of them changes meaning, the major number changes with it.
 
 ### What it does
@@ -14,7 +74,7 @@ This hands that to Claude instead of a screenshot, so a control is pressed by
 name rather than by guessed coordinate, and every action reports the element's
 state before and after rather than assuming it worked.
 
-**32 tools**, arranged as a cost ladder: read the tree, operate controls, read
+**35 tools**, arranged as a cost ladder: read the tree, operate controls, read
 tables as rows and columns, set sliders to an exact number, move and resize
 windows, read and write the clipboard, open menus. Coordinate input and screen
 capture remain for surfaces that genuinely paint themselves — editing canvases,

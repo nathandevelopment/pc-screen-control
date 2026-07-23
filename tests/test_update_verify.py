@@ -2,11 +2,13 @@
 """
 The update download must be checked against the published hash, or refused.
 
-check_for_update is the one tool that reaches the network, and it can write a
-file to disk that the user is told to install. A published SHA-256 that the
-download is never compared to protects nobody - it just looks like protection.
-The whole reason an unsigned tool can be trusted is that the audited bytes are
-the bytes you run, and that only holds if the bytes are verified on arrival.
+The updater (scripts/check-for-updates.py) is the only part of this project that
+reaches the network, and it can write a file to disk that the user is told to
+install. A published SHA-256 that the download is never compared to protects
+nobody - it just looks like protection. The whole reason an unsigned build can
+be trusted is that the audited bytes are the bytes you run, and that only holds
+if the bytes are verified on arrival. (The server itself no longer downloads
+anything - see test_offline.py - so this logic lives in the updater now.)
 
 This test does not hit the network. It exercises the verification logic
 directly by feeding it three release bodies - one with the right hash, one with
@@ -76,17 +78,20 @@ def main():
     check("no hash -> not saved", entscheide("no hash") == "not_saved")
 
     print()
-    print("3 - server.py actually contains this logic, not just the test")
+    print("3 - the updater actually contains this logic, not just the test")
+    upd = open(os.path.join(os.path.dirname(HERE), "scripts",
+                            "check-for-updates.py"), encoding="utf-8").read()
+    check("updater extracts a SHA-256", "SHA-?256" in upd)
+    check("updater compares before writing",
+          "tatsaechlich != erwartet" in upd)
+    check("updater refuses on mismatch", "REFUSED" in upd)
+    check("updater writes the file only after the check passes",
+          upd.index("tatsaechlich != erwartet") < upd.index('open(ziel, "wb")'))
+    # and the server, by contrast, must contain none of it
     src = open(os.path.join(os.path.dirname(HERE), "src", "server.py"),
                encoding="utf-8").read()
-    check("server extracts a SHA-256", "SHA-?256" in src or "SHA-256" in src)
-    check("server compares before writing",
-          "tatsaechlich != erwarteter_hash" in src)
-    check("server refuses on mismatch", 'erg["ok"] = False' in src
-          and "REFUSED" in src)
-    check("server writes the file only after the check passes",
-          src.index("Verified. Only now") < src.index('open(ziel, "wb")',
-                                                       src.index("Verified")))
+    check("the server itself downloads nothing",
+          'open(ziel, "wb")' not in src and "browser_download_url" not in src)
 
     print()
     print("-" * 62)
