@@ -91,9 +91,21 @@ def main():
 
     print()
     print("2 - move the foreground somewhere else")
+    # Skip notification toasts as the move target. They are WS_EX_NOACTIVATE
+    # system windows the OS keeps prominent, so restoring the foreground *away*
+    # from an active toast is a pathological case that does not happen in normal
+    # use - the real restore target is an ordinary application window. Measuring
+    # against a toast would test the operating system's toast policy, not this
+    # code.
+    def ist_toast(w):
+        t = (w.get("title") or "").lower()
+        c = (w.get("class") or "")
+        return ("benachrichtigung" in t or "notification" in t
+                or "CoreWindow" in c or "ShellExperience" in c
+                or "Xaml" in c)
     anderes = None
     for w in fenster:
-        if int(w["handle"]) != int(ausgangs_hwnd):
+        if int(w["handle"]) != int(ausgangs_hwnd) and not ist_toast(w):
             anderes = int(w["handle"])
             break
     if anderes is None:

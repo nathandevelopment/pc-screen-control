@@ -1741,6 +1741,16 @@ def _vordergrund_setzen(hwnd):
     # foreground at all. SPIF_SENDCHANGE = 2 so the change takes effect now.
     u.SystemParametersInfoW(SPI_SET, 0, ctypes.c_void_p(0), 2)
 
+    # One more nudge that is the single most reliable trick when Windows is
+    # refusing: a brief Alt tap. SetForegroundWindow is granted freely to the
+    # process that produced the last input event, so producing one - a key that
+    # does nothing on its own - is what convinces Windows this request is not a
+    # background program stealing focus. Alt down/up is the conventional choice
+    # because it activates no menu on a keyup alone.
+    VK_MENU, KEYUP = 0x12, 0x0002
+    u.keybd_event(VK_MENU, 0, 0, 0)
+    u.keybd_event(VK_MENU, 0, KEYUP, 0)
+
     eigen = k.GetCurrentThreadId()
     vorne = u.GetForegroundWindow()
     fremd = u.GetWindowThreadProcessId(ctypes.c_void_p(vorne or 0), None)
@@ -1754,6 +1764,12 @@ def _vordergrund_setzen(hwnd):
         u.BringWindowToTop(ziel)
         u.SetForegroundWindow(ziel)
         u.ShowWindow(ziel, 5)                    # SW_SHOW, nudge z-order
+        # A second attempt after a beat sometimes lands when the first is still
+        # being processed. Cheap, and it only runs if the first did not take.
+        if int(u.GetForegroundWindow() or 0) != int(hwnd):
+            import time as _t
+            _t.sleep(0.03)
+            u.SetForegroundWindow(ziel)
     finally:
         for t in angehaengt:
             u.AttachThreadInput(eigen, t, False)
